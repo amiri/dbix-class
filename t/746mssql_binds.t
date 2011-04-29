@@ -29,7 +29,7 @@ EOF
 DBICTest::Schema->load_classes('MSSQLTypes');
 
 my @connect_info = (
-#  [ $dsn,  $user,  $pass,  {} ],
+  [ $dsn,  $user,  $pass,  {} ],
   [ $dsn2, $user2, $pass2, {} ],
 #  [ $dsn3, $user3, $pass3, {} ],
 );
@@ -147,6 +147,9 @@ EOF
 #    hierarchyid_col => '/',
   );
 
+  my %undef;
+  @undef{keys %data} = ();
+
   my $rs = $schema->resultset('MSSQLTypes');
 
   my %search = %data;
@@ -156,11 +159,14 @@ EOF
   # try regular insert
   {
     lives_ok {
-      $rs->create(\%data)
+      $rs->create(\%undef);
+      $rs->create(\%data);
     } 'regular insert survived';
 
-    ok ((my $row = try { $rs->search(\%search)->first }),
-      'retrieved inserted row for regular insert');
+    my $row;
+    lives_and {
+      ok $row = $rs->search(\%search)->first;
+    } 'retrieved inserted row for regular insert';
 
     my %retrieved = $row ? $row->get_columns : ();
     delete @retrieved{qw/id/};
@@ -179,11 +185,14 @@ EOF
   # do an identity insert
   {
     lives_ok {
-      $rs->create({ %data, id => 1 })
+      $rs->create({ %undef, id => 1 });
+      $rs->create({ %data,  id => 2 });
     } 'identity insert survived';
 
-    ok ((my $row = try { $rs->search(\%search)->first }),
-      'retrieved inserted row for identity insert');
+    my $row;
+    lives_and {
+      ok $row = $rs->search(\%search)->first;
+    } 'retrieved inserted row for identity insert';
 
     my %retrieved = $row ? $row->get_columns : ();
 
@@ -192,7 +201,7 @@ EOF
       delete $retrieved{$k} if not defined $v;
     }
 
-    is_deeply \%retrieved, { %data, id => 1 },
+    is_deeply \%retrieved, { %data, id => 2 },
       'retrieved data for identity insert matches inserted data';
   }
 
@@ -201,11 +210,13 @@ EOF
   # do a populate (insert_bulk)
   {
     lives_ok {
-      $rs->populate([ \%data ])
+      $rs->populate([ \%undef, \%data ])
     } 'populate survived';
 
-    ok ((my $row = try { $rs->search(\%search)->first }),
-      'retrieved inserted row for populate');
+    my $row;
+    lives_and {
+      ok $row = $rs->search(\%search)->first;
+    } 'retrieved inserted row for populate';
 
     my %retrieved = $row ? $row->get_columns : ();
     delete @retrieved{qw/id/};
@@ -224,11 +235,13 @@ EOF
   # do a populate (insert_bulk) with identity insert
   {
     lives_ok {
-      $rs->populate([ { %data, id => 1 } ])
+      $rs->populate([ { %undef, id => 1 }, { %data, id => 2 } ]);
     } 'populate with identity insert survived';
 
-    ok ((my $row = try { $rs->search(\%search)->first }),
-      'retrieved inserted row for populate with identity insert');
+    my $row;
+    lives_and {
+      ok $row = $rs->search(\%search)->first;
+    } 'retrieved inserted row for populate with identity insert';
 
     my %retrieved = $row ? $row->get_columns : ();
 
@@ -237,7 +250,7 @@ EOF
       delete $retrieved{$k} if not defined $v;
     }
 
-    is_deeply \%retrieved, { %data, id => 1 },
+    is_deeply \%retrieved, { %data, id => 2 },
       'retrieved data for populate with identity insert matches inserted data';
   }
 }
