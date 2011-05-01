@@ -2,6 +2,9 @@ package DBIx::Class::Storage::DBI::Oracle::Generic;
 
 use strict;
 use warnings;
+use base qw/DBIx::Class::Storage::DBI/;
+use mro 'c3';
+use DBIx::Class::Carp;
 use Scope::Guard ();
 use Context::Preserve 'preserve_context';
 use Try::Tiny;
@@ -10,6 +13,10 @@ use namespace::clean;
 
 __PACKAGE__->sql_limit_dialect ('RowNum');
 __PACKAGE__->sql_quote_char ('"');
+__PACKAGE__->sql_maker_class('DBIx::Class::SQLMaker::Oracle');
+__PACKAGE__->datetime_parser_type('DateTime::Format::Oracle');
+
+sub __cache_queries_with_max_lob_parts { 2 }
 
 =head1 NAME
 
@@ -76,14 +83,6 @@ versions before 9.0.
 =head1 METHODS
 
 =cut
-
-use base qw/DBIx::Class::Storage::DBI/;
-use mro 'c3';
-
-__PACKAGE__->sql_maker_class('DBIx::Class::SQLMaker::Oracle');
-__PACKAGE__->datetime_parser_type('DateTime::Format::Oracle');
-
-sub __cache_queries_with_max_lob_parts { 2 }
 
 sub _determine_supports_insert_returning {
   my $self = shift;
@@ -488,10 +487,25 @@ sub _prep_for_execute {
 
   my ($sql, $bind) = $self->next::method(@_);
 
-  return ($sql, $bind) if $op ne 'select';
+  return ($sql, $bind) if $op eq 'insert';
 
-  my @sql_part = split /\?/, $sql;
-  my ($new_sql, @new_binds);
+  my (@sql_part, $new_sql, @new_binds);
+
+  if ($op eq 'select' || $op eq 'delete') {
+    @sql_part = split /\?/, $sql;
+  }
+  elsif ($op eq 'update') {
+    my ($set_part, $where_part) = $sql =~ /^(.*)(\bWHERE\b.*)\z/;
+    my $set_placeholders = $set_part =~ y/?//;
+
+    @new_binds = splice @$bind, 0, $set_placeholders;
+
+    @sql_part = split /\?/, $where_part;
+    $new_sql  = $set_part;
+  }
+  else {
+    $self->throw_exception("Unknown \$op: $op");
+  }
 
   foreach my $bound (@$bind) {
     my $data_type = $bound->[0]{sqlt_datatype}||'';
@@ -545,7 +559,11 @@ sub _prep_for_execute {
       push @new_binds, $bound;
     }
   }
-  $new_sql .= join '', @sql_part;
+
+  carp "There are more placeholders than binds, this should not happen!"
+    if @sql_part > 1;
+
+  $new_sql .= join '?', @sql_part;
 
   return ($new_sql, \@new_binds);
 }

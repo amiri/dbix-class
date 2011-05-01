@@ -408,7 +408,7 @@ sub _run_tests {
       } "inserted $size without dying";
 
       my @objs = $rs->search({ blob => "blob:$str", clob => "clob:$str" })->all;
-      is (@objs, 1, 'One row found matching on both LOBs');
+      is @objs, 1, 'One row found matching on both LOBs';
       ok (try { $objs[0]->blob }||'' eq "blob:$str", 'blob inserted/retrieved correctly');
       ok (try { $objs[0]->clob }||'' eq "clob:$str", 'clob inserted/retrieved correctly');
 
@@ -428,6 +428,23 @@ sub _run_tests {
 
       @objs = $rs->search({ id => { -in => $subq } })->all;
       is (@objs, 1, 'One row found matching on both LOBs as a subquery');
+
+      lives_ok {
+        $rs->search({ blob => "blob:$str", clob => "clob:$str" })
+          ->update({ blob => 'updated blob', clob => 'updated clob' });
+      } 'blob UPDATE with WHERE clause survived';
+
+      @objs = $rs->search({ blob => "updated blob", clob => 'updated clob' })->all;
+      is @objs, 1, 'found updated row';
+      ok (try { $objs[0]->blob }||'' eq "updated blob", 'blob updated/retrieved correctly');
+      ok (try { $objs[0]->clob }||'' eq "updated clob", 'clob updated/retrieved correctly');
+
+      lives_ok {
+        $rs->search({ blob => "updated blob", clob => "updated clob" })
+          ->delete;
+      } 'blob DELETE with WHERE clause survived';
+      @objs = $rs->search({ blob => "updated blob", clob => 'updated clob' })->all;
+      is @objs, 0, 'row deleted successfully';
     }
 
     $schema->storage->debug ($orig_debug);
